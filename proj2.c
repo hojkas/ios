@@ -44,6 +44,8 @@ sem_t *sem_embarking;
 sem_t *sem_get_lost;
 sem_t *sem_last_man;
 
+FILE *action_log;
+
 /*
 * Nahraje parametry do globalnich promennych. V pripade chyby vypise jak mel format vypadat a program se ukonci.
 */
@@ -294,8 +296,8 @@ void write_log(char* type, int id, char* action, int mode)
 	serf_count_open();
 	
 	shm_log_index[0]++;
-	if(mode) printf("%-3d     : %s %-3d     : %-20s     : %-3d     : %-3d\n", shm_log_index[0], type, id, action, shm_hack_count[0], shm_serf_count[0]);
-	else printf("%-3d     : %s %-3d     : %-20s\n", shm_log_index[0], type, id, action);
+	if(mode) fprintf(action_log, "%-3d     : %s %-3d     : %-20s     : %-3d     : %-3d\n", shm_log_index[0], type, id, action, shm_hack_count[0], shm_serf_count[0]);
+	else fprintf(action_log, "%-3d     : %s %-3d     : %-20s\n", shm_log_index[0], type, id, action);
 	
 	log_count_close();
 	hack_count_close();
@@ -319,6 +321,7 @@ void one_serf(int id)
 	
 	int left = 0;
 	int is_captain = 0;
+	int delay;
 	
 	//serf jde k molu
 	while(1) { //serf čeká na volné místo na molu
@@ -333,7 +336,8 @@ void one_serf(int id)
 				write_log("SERF", id, "leaves queue", 1);
 				sem_post(sem_mem);
 				left = 1;
-				usleep(max_wait_time);
+				delay = (rand() % (max_wait_time - 19)) + 20;
+				usleep(delay*1000);
 		}		
 	}
 	
@@ -399,7 +403,8 @@ void one_serf(int id)
 		write_log("SERF", id, "boards", 1);
 		sem_post(sem_mem);
 		
-		usleep(max_sail_time);
+		delay = (rand() % (max_wait_time - 19)) + 20;
+		usleep(delay*1000);
 		
 		//pošle tři signály cestujícím, aby vystoupili, sám čeká,
 		//až se mu vrátí tři signály last_man značící, že už jsou všichni venku
@@ -452,6 +457,7 @@ void one_hack(int id)
 	
 	int left = 0;
 	int is_captain = 0;
+	int delay;
 	
 	//jde k molu
 	while(1) { //čekání na volné místo
@@ -466,7 +472,8 @@ void one_hack(int id)
 				write_log("HACK", id, "leaves queue", 1);
 				sem_post(sem_mem);
 				left = 1;
-				usleep(max_wait_time);
+				delay = (rand() % (max_wait_time - 19)) + 20;
+				usleep(delay*1000);
 		}		
 	}
 	
@@ -527,7 +534,8 @@ void one_hack(int id)
 		write_log("HACK", id, "boards", 1);
 		sem_post(sem_mem);
 		
-		usleep(max_sail_time);
+		delay = (rand() % (max_wait_time - 19)) + 20;
+		usleep(delay*1000);
 		
 		//poslání 3 signálu "vystupte" a čekání na tři odezvy, než sám vystoupí
 		sem_post(sem_get_lost);
@@ -562,6 +570,7 @@ void one_hack(int id)
 void serf_generator()
 {
 	pid_t pid;
+	int delay;
 
 	sem_mem = sem_open(semMEM, O_RDWR);
 	sem_embarking = sem_open(semEMBARKING, O_RDWR);
@@ -576,7 +585,8 @@ void serf_generator()
 		pid = fork();
 		if(pid == 0) one_serf(i);
 		//TODO ověření chyby
-		usleep(gen_serf_delay);
+		delay = rand()%(gen_serf_delay+1);
+		usleep(delay*1000);
 	}
 	
 	//čeká na ukončené child procesy
@@ -588,13 +598,15 @@ void serf_generator()
 void hack_generator()
 {
 	pid_t pid;
+	int delay;
 	
 	//generování hacků
 	for(int i = 1; i <= generated_people; i++) {
 		pid = fork();
 		if(pid == 0) one_hack(i);
 		//TODO ověření chyby
-		usleep(gen_hack_delay);
+		delay = rand()%(gen_hack_delay+1);
+		usleep(delay*1000);
 	}
 	
 	//čeká na ukončení childs
@@ -614,6 +626,14 @@ int main(int argc, char* argv[])
     setbuf(stderr,NULL);
 	
 	load_params(argc, argv); //nahrání argumentů
+	
+	action_log = fopen("proj2.out", "w");
+	if(action_log == NULL) {
+		fprintf(stderr, "Error in opening file for log\n");
+		exit(1);
+	}
+	
+	setbuf(action_log, NULL);
 	
 	pid_t pid;
 	srand(time(NULL));
@@ -649,6 +669,7 @@ int main(int argc, char* argv[])
 			hack_count_unlink();
 			boat_hack_unlink();
 			boat_serf_unlink();
+			fclose(action_log);
 			//TODO co s už funkčním serf_generátorem?
 			perror("fork");
 			exit(2);
@@ -664,6 +685,7 @@ int main(int argc, char* argv[])
 		hack_count_unlink();
 		boat_hack_unlink();
 		boat_serf_unlink();
+		fclose(action_log);
 		perror("fork");
 		exit(2);
 	}
@@ -682,6 +704,7 @@ int main(int argc, char* argv[])
 	hack_count_unlink();
 	boat_hack_unlink();
 	boat_serf_unlink();
+	fclose(action_log);
 
     return 0;
 }
