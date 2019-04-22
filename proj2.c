@@ -18,6 +18,7 @@
 #define semGETLOST "/xstrna14-ios2-get_lost"
 #define semEMBARKING "/xstrna14-ios2-embarking"
 #define semMEM "/xstrna14-ios2-mem"
+#define semLASTMAN "/xstrna14-ios2-last_man"
 #define shmKEYlog "/xstrna14-ios2-keylog"
 #define shmKEYserfs "/xstrna14-ios2-keyserfs"
 #define shmKEYhacks "/xstrna14-ios2-keyhacks"
@@ -41,6 +42,7 @@ int *shm_boat_hack;
 sem_t *sem_mem;
 sem_t *sem_embarking;
 sem_t *sem_get_lost;
+sem_t *sem_last_man;
 
 /*
 * Loads params from program arguments into global variables.
@@ -304,20 +306,116 @@ void write_log(char* type, int id, char* action, int mode)
 void one_serf(int id)
 {
 	sem_mem = sem_open(semMEM, O_RDWR);
+	sem_embarking = sem_open(semEMBARKING, O_RDWR);
+	sem_get_lost = sem_open(semGETLOST, O_RDWR);
+	sem_last_man = sem_open(semLASTMAN, O_RDWR);
 	
-	//starting
 	sem_wait(sem_mem);
 	write_log("SERF", id, "starts", 0);
 	sem_post(sem_mem);
 	
+	int left = 0;
+	int is_captain = 0;
+	
 	//going to molo
-	sem_wait(sem_mem);
-	serf_count_open();
+	while(1) { //waiting for empty space on molo
+		sem_wait(sem_mem);
+		if(left == 1) write_log("SERF", id, "is back", 0);
+		hack_count_open();
+		serf_count_open();
+		if((shm_serf_count[0]+shm_hack_count[0]) < max_molo) break;
+		else {
+				hack_count_close();
+				serf_count_close();
+				write_log("SERF", id, "leaves queue", 1);
+				sem_post(sem_mem);
+				left = 1;
+				usleep(max_wait_time);
+		}		
+	}
+	
+	//finally going onto molo, changing stats
+	hack_count_close();
 	shm_serf_count[0]++;
 	serf_count_close();
-	write_log("SERF", id, "created", 1);
+	write_log("SERF", id, "waits", 1);
 	sem_post(sem_mem);
 	
+	//on the molo
+	while(1) {
+		sem_wait(sem_embarking);
+		sem_wait(sem_mem);
+		
+		boat_hack_open();
+		boat_serf_open();
+		
+		if((shm_boat_serf[0] < 4 && shm_boat_hack[0] == 0) || (shm_boat_serf[0] < 2 && shm_boat_hack[0] <= 2)) break;
+		
+		boat_hack_close();
+		boat_serf_close();
+		
+		sem_post(sem_mem);
+		sem_post(sem_embarking);
+	}
+	
+	//can go to the boat and goes
+	shm_boat_serf[0]++;
+	if(shm_boat_serf[0] == 4 || (shm_boat_hack[0] == 2 && shm_boat_serf[0] == 2)) is_captain = 1; //stává se kapitánem a nechává si semafor sem_embarking
+	else sem_post(sem_embarking); //není kapitánem, posílá semafor aby další mohli nalodit
+	boat_hack_close();
+	boat_serf_close();
+	sem_post(sem_mem);
+	
+	if(is_captain) {
+		//odepsani hacku a serfu z mola
+		//vycisteni boat_serf a boat_hack
+		sem_wait(sem_mem);
+		serf_count_open();
+		hack_count_open();
+		boat_hack_open();
+		boat_serf_open();
+		
+		if(shm_boat_serf[0] == 4) shm_serf_count[0] -= 4;
+		if(shm_boat_serf[0] == 2) {
+			shm_serf_count[0] -= 2;
+			shm_hack_count[0] -= 2;
+		}
+		shm_boat_hack[0] = 0;
+		shm_boat_serf[0] = 0;
+		
+		serf_count_close();
+		hack_count_close();
+		boat_hack_close();
+		boat_serf_close();
+		
+		write_log("SERF", id, "boards", 1);
+		sem_post(sem_mem);
+		
+		usleep(max_sail_time);
+		
+		sem_post(sem_get_lost);
+		sem_post(sem_get_lost);
+		sem_post(sem_get_lost);
+		sem_wait(sem_last_man);
+		sem_wait(sem_last_man);
+		sem_wait(sem_last_man);
+		
+		sem_wait(sem_mem);
+		write_log("SERF", id, "captain exits", 1);
+		sem_post(sem_mem);
+		sem_post(sem_embarking);
+	}
+	else {
+		sem_wait(sem_get_lost);
+		sem_wait(sem_mem);
+		write_log("SERF", id, "member exits", 1);
+		sem_post(sem_mem);
+		sem_post(sem_last_man);
+	}
+	
+	sem_close(sem_last_man);
+	sem_close(sem_get_lost);
+	sem_close(sem_embarking);
 	sem_close(sem_mem);
 	exit(0);
 }
@@ -327,6 +425,7 @@ void one_hack(int id)
 	sem_mem = sem_open(semMEM, O_RDWR);
 	sem_embarking = sem_open(semEMBARKING, O_RDWR);
 	sem_get_lost = sem_open(semGETLOST, O_RDWR);
+	sem_last_man = sem_open(semLASTMAN, O_RDWR);
 	
 	sem_wait(sem_mem);
 	write_log("HACK", id, "starts", 0);
@@ -345,7 +444,7 @@ void one_hack(int id)
 		else {
 				hack_count_close();
 				serf_count_close();
-				write_log("HACK", id, "leaves queue", 0);
+				write_log("HACK", id, "leaves queue", 1);
 				sem_post(sem_mem);
 				left = 1;
 				usleep(max_wait_time);
@@ -380,19 +479,60 @@ void one_hack(int id)
 	shm_boat_hack[0]++;
 	if(shm_boat_hack[0] == 4 || (shm_boat_hack[0] == 2 && shm_boat_serf[0] == 2)) is_captain = 1; //stává se kapitánem a nechává si semafor sem_embarking
 	else sem_post(sem_embarking); //není kapitánem, posílá semafor aby další mohli nalodit
-	if(is_captain)
+	boat_hack_close();
+	boat_serf_close();
 	sem_post(sem_mem);
 	
+	if(is_captain) {
+		//odepsani hacku a serfu z mola
+		//vycisteni boat_serf a boat_hack
+		sem_wait(sem_mem);
+		serf_count_open();
+		hack_count_open();
+		boat_hack_open();
+		boat_serf_open();
+		
+		if(shm_boat_hack[0] == 4) shm_hack_count[0] -= 4;
+		if(shm_boat_hack[0] == 2) {
+			shm_serf_count[0] -= 2;
+			shm_hack_count[0] -= 2;
+		}
+		shm_boat_hack[0] = 0;
+		shm_boat_serf[0] = 0;
+		
+		serf_count_close();
+		hack_count_close();
+		boat_hack_close();
+		boat_serf_close();
+		
+		write_log("HACK", id, "boards", 1);
+		sem_post(sem_mem);
+		
+		usleep(max_sail_time);
+		
+		sem_post(sem_get_lost);
+		sem_post(sem_get_lost);
+		sem_post(sem_get_lost);
+		sem_wait(sem_last_man);
+		sem_wait(sem_last_man);
+		sem_wait(sem_last_man);
+		
+		sem_wait(sem_mem);
+		write_log("HACK", id, "captain exits", 1);
+		sem_post(sem_mem);
+		sem_post(sem_embarking);
+	}
+	else {
+		sem_wait(sem_get_lost);
+		sem_wait(sem_mem);
+		write_log("HACK", id, "member exits", 1);
+		sem_post(sem_mem);
+		sem_post(sem_last_man);
+	}
 	
-	usleep(2000);
-	
-	//leaving molo
-	sem_wait(sem_mem);
-	hack_count_open();
-	shm_hack_count[0]--;
-	hack_count_close();
-	sem_post(sem_mem);
-	
+	sem_close(sem_last_man);
+	sem_close(sem_get_lost);
+	sem_close(sem_embarking);
 	sem_close(sem_mem);
 	exit(0);
 }
@@ -408,15 +548,15 @@ void serf_generator()
 	sem_close(sem_mem);
 	sem_post(sem_embarking); //signál, že je možno přistupovat na loď
 	sem_close(sem_embarking);
-	/*
-	for(int i = 0; i < generated_people; i++) {
+	
+	for(int i = 1; i <= generated_people; i++) {
 		pid = fork();
 		if(pid == 0) one_serf(i);
 		usleep(gen_serf_delay);
 	}
 	
 	for(int i = 0; i < generated_people; i++) wait(NULL);
-	*/
+	
 	exit(0);
 }
 
@@ -424,7 +564,7 @@ void hack_generator()
 {
 	pid_t pid;
 	
-	for(int i = 0; i < generated_people; i++) {
+	for(int i = 1; i <= generated_people; i++) {
 		pid = fork();
 		if(pid == 0) one_hack(i);
 		usleep(gen_hack_delay);
@@ -455,6 +595,8 @@ int main(int argc, char* argv[])
 	sem_close(sem_embarking);
 	sem_get_lost = sem_open(semGETLOST, O_CREAT, 0666, 0);
 	sem_close(sem_get_lost);
+	sem_last_man = sem_open(semLASTMAN, O_CREAT, 0666, 0);
+	sem_close(sem_last_man);
 	
 	log_count_init();
 	serf_count_init();
@@ -486,6 +628,7 @@ int main(int argc, char* argv[])
 	sem_unlink(semMEM);
 	sem_unlink(semEMBARKING);
 	sem_unlink(semGETLOST);
+	sem_unlink(semLASTMAN);
 	log_count_unlink();
 	serf_count_unlink();
 	hack_count_unlink();
