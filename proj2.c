@@ -105,16 +105,24 @@ void load_params(int argc, char* argv[])
 }
 
 //FUNKCE NA VYTVOŘENÍ SHARED MEMORY PRO LOG_COUNT
+void log_count_unlink();
 void log_count_init()
 {
 	int shmID_log_index;
 	shmID_log_index = shm_open(shmKEYlog, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
     ftruncate(shmID_log_index, shmSIZE);
     shm_log_index = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_log_index, 0);
-    close(shmID_log_index);
+	close(shmID_log_index);
 	if(shm_log_index == (void*) -1) {
-		fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYlog\n");
-		exit(1);
+		log_count_unlink();
+		shmID_log_index = shm_open(shmKEYlog, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+		ftruncate(shmID_log_index, shmSIZE);
+		shm_log_index = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_log_index, 0);
+		close(shmID_log_index);
+		if(shm_log_index == (void*) -1) {
+			fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYlog\n");
+			exit(1);
+		}
 	}
 	shm_log_index[0] = 0;
 	munmap(shm_log_index, shmSIZE);
@@ -126,7 +134,6 @@ void log_count_open()
 	shmID_log_index = shm_open(shmKEYlog, O_RDWR, S_IRUSR | S_IWUSR);
     shm_log_index = (int*)mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shmID_log_index, 0);
     close(shmID_log_index);
-	//TODO overit uspesnost!!!
 }
 
 void log_count_close()
@@ -141,16 +148,25 @@ void log_count_unlink()
 //KONEC FUNKCÍ NA VYTVOŘENÍ SHARED MEMORY PRO LOG_COUNT
 
 //FUNKCE NA VYTVOŘENÍ SHARED MEMORY NA SERF_COUNT
+void serf_count_unlink();
 void serf_count_init()
 {
 	int shmID_serf_count;
 	shmID_serf_count = shm_open(shmKEYserfs, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
     ftruncate(shmID_serf_count, shmSIZE);
     shm_serf_count = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_serf_count, 0);
-    close(shmID_serf_count);
+	close(shmID_serf_count);
 	if(shm_serf_count == (void*) -1) {
-		fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYserfs\n");
-		exit(1);
+		serf_count_unlink();
+		shmID_serf_count = shm_open(shmKEYserfs, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+		ftruncate(shmID_serf_count, shmSIZE);
+		shm_serf_count = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_serf_count, 0);
+		close(shmID_serf_count);
+		if(shm_serf_count == (void*) -1) {
+			fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYserfs\n");
+			log_count_unlink();
+			exit(1);
+		}
 	}
 	shm_serf_count[0] = 0;
 	munmap(shm_serf_count, shmSIZE);
@@ -162,7 +178,6 @@ void serf_count_open()
 	shmID_serf_count = shm_open(shmKEYserfs, O_RDWR, S_IRUSR | S_IWUSR);
     shm_serf_count = (int*)mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shmID_serf_count, 0);
     close(shmID_serf_count);
-	//TODO overit uspesnost!!!
 }
 
 void serf_count_close()
@@ -177,6 +192,7 @@ void serf_count_unlink()
 //KONEC FUNKCÍ NA VYTVOŘENÍ SHARED MEMORY PRO SERF_COUNT
 
 //FUNKCE NA VYTVOŘENÍ SHARED MEMORY PRO HACK_COUNT
+void hack_count_unlink();
 void hack_count_init()
 {
 	int shmID_hack_count;
@@ -185,8 +201,17 @@ void hack_count_init()
     shm_hack_count = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_hack_count, 0);
     close(shmID_hack_count);
 	if(shm_hack_count == (void*) -1) {
-		fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYhacks\n");
-		exit(1);
+		hack_count_unlink();
+		shmID_hack_count = shm_open(shmKEYhacks, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+		ftruncate(shmID_hack_count, shmSIZE);
+		shm_hack_count = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_hack_count, 0);
+		close(shmID_hack_count);
+		if(shm_hack_count == (void*) -1) {
+			fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYhacks\n");
+			log_count_unlink();
+			serf_count_unlink();
+			exit(1);
+		}
 	}
 	shm_hack_count[0] = 0;
 	munmap(shm_hack_count, shmSIZE);
@@ -198,7 +223,6 @@ void hack_count_open()
 	shmID_hack_count = shm_open(shmKEYhacks, O_RDWR, S_IRUSR | S_IWUSR);
     shm_hack_count = (int*)mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shmID_hack_count, 0);
     close(shmID_hack_count);
-	//TODO overit uspesnost!!!
 }
 
 void hack_count_close()
@@ -213,6 +237,7 @@ void hack_count_unlink()
 //KONEC FUNKCÍ NA VYTVOŘENÍ SHARED MEMORY PRO HACK_COUNT
 
 //FUNKCE NA VYTVOŘENÍ SHARED MEMORY NA BOAT_SERF
+void boat_serf_unlink();
 void boat_serf_init()
 {
 	int shmID_boat_serf;
@@ -221,8 +246,18 @@ void boat_serf_init()
     shm_boat_serf = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_boat_serf, 0);
     close(shmID_boat_serf);
 	if(shm_boat_serf == (void*) -1) {
-		fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYboat_serf\n");
-		exit(1);
+		boat_serf_unlink();
+		shmID_boat_serf = shm_open(shmKEYboat_serf, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+		ftruncate(shmID_boat_serf, shmSIZE);
+		shm_boat_serf = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_boat_serf, 0);
+		close(shmID_boat_serf);
+		if(shm_boat_serf == (void*) -1) {
+			fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYboat_serf\n");
+			log_count_unlink();
+			serf_count_unlink();
+			hack_count_unlink();
+			exit(1);
+		}
 	}
 	shm_boat_serf[0] = 0;
 	munmap(shm_boat_serf, shmSIZE);
@@ -234,7 +269,6 @@ void boat_serf_open()
 	shmID_boat_serf = shm_open(shmKEYboat_serf, O_RDWR, S_IRUSR | S_IWUSR);
     shm_boat_serf = (int*)mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shmID_boat_serf, 0);
     close(shmID_boat_serf);
-	//TODO overit uspesnost!!!
 }
 
 void boat_serf_close()
@@ -249,6 +283,7 @@ void boat_serf_unlink()
 //KONEC FUNKCÍ NA VYTVOŘENÍ SHARED MEMORY PRO BOAT_SERF
 
 //FUNKCE NA VYTVOŘENÍ SHARED MEMORY PRO BOAT_HACK
+void boat_hack_unlink();
 void boat_hack_init()
 {
 	int shmID_boat_hack;
@@ -257,8 +292,19 @@ void boat_hack_init()
     shm_boat_hack = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_boat_hack, 0);
     close(shmID_boat_hack);
 	if(shm_boat_hack == (void*) -1) {
-		fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYboat_hack\n");
-		exit(1);
+		boat_hack_unlink();
+		shmID_boat_hack = shm_open(shmKEYboat_hack, O_CREAT | O_EXCL | O_RDWR, S_IRUSR | S_IWUSR);
+		ftruncate(shmID_boat_hack, shmSIZE);
+		shm_boat_hack = (int*)mmap(NULL, shmSIZE, PROT_READ | PROT_WRITE, MAP_SHARED, shmID_boat_hack, 0);
+		close(shmID_boat_hack);
+		if(shm_boat_hack == (void*) -1) {
+			fprintf(stderr, "Chyba pri pristupu ke sdilene pameti na shmKEYboat_hack\n");
+			log_count_unlink();
+			serf_count_unlink();
+			hack_count_unlink();
+			boat_serf_unlink();
+			exit(1);
+		}
 	}
 	shm_boat_hack[0] = 0;
 	munmap(shm_boat_hack, shmSIZE);
@@ -270,7 +316,6 @@ void boat_hack_open()
 	shmID_boat_hack = shm_open(shmKEYboat_hack, O_RDWR, S_IRUSR | S_IWUSR);
     shm_boat_hack = (int*)mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED, shmID_boat_hack, 0);
     close(shmID_boat_hack);
-	//TODO overit uspesnost!!!
 }
 
 void boat_hack_close()
@@ -298,8 +343,6 @@ void write_log(char* type, int id, char* action, int mode)
 	shm_log_index[0]++;
 	if(mode) fprintf(action_log, "%-3d     : %s %-3d     : %-20s     : %-3d     : %-3d\n", shm_log_index[0], type, id, action, shm_hack_count[0], shm_serf_count[0]);
 	else fprintf(action_log, "%-3d     : %s %-3d     : %-20s\n", shm_log_index[0], type, id, action);
-	if(mode) printf("%-3d     : %s %-3d     : %-20s     : %-3d     : %-3d\n", shm_log_index[0], type, id, action, shm_hack_count[0], shm_serf_count[0]);
-	else printf("%-3d     : %s %-3d     : %-20s\n", shm_log_index[0], type, id, action);
 	
 	log_count_close();
 	hack_count_close();
@@ -598,7 +641,10 @@ void serf_generator()
 	for(int i = 1; i <= generated_people; i++) {
 		pid = fork();
 		if(pid == 0) one_serf(i);
-		//TODO ověření chyby
+		if(pid < 0) {
+			perror("fork");
+			exit(2);
+		}
 		delay = rand()%(gen_serf_delay+1);
 		usleep(delay*1000);
 	}
@@ -618,7 +664,10 @@ void hack_generator()
 	for(int i = 1; i <= generated_people; i++) {
 		pid = fork();
 		if(pid == 0) one_hack(i);
-		//TODO ověření chyby
+		if(pid < 0) {
+			perror("fork");
+			exit(2);
+		}
 		delay = rand()%(gen_hack_delay+1);
 		usleep(delay*1000);
 	}
@@ -664,8 +713,8 @@ int main(int argc, char* argv[])
 	log_count_init();
 	serf_count_init();
 	hack_count_init();
-	boat_hack_init();
 	boat_serf_init();
+	boat_hack_init();
 	//konec inicializace sdílené paměti a semaforů
 
 	pid=fork();
@@ -684,7 +733,6 @@ int main(int argc, char* argv[])
 			boat_hack_unlink();
 			boat_serf_unlink();
 			fclose(action_log);
-			//TODO co s už funkčním serf_generátorem?
 			perror("fork");
 			exit(2);
 		}
