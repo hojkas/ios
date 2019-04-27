@@ -701,6 +701,12 @@ int main(int argc, char* argv[])
 	pid_t pid;
 	srand(time(NULL));
 	
+	log_count_init();
+	serf_count_init();
+	hack_count_init();
+	boat_serf_init();
+	boat_hack_init();
+	
 	sem_mem = sem_open(semMEM, O_CREAT, 0666, 0);
 	sem_close(sem_mem);
 	sem_embarking = sem_open(semEMBARKING, O_CREAT, 0666, 0);
@@ -709,12 +715,6 @@ int main(int argc, char* argv[])
 	sem_close(sem_get_lost);
 	sem_last_man = sem_open(semLASTMAN, O_CREAT, 0666, 0);
 	sem_close(sem_last_man);
-	
-	log_count_init();
-	serf_count_init();
-	hack_count_init();
-	boat_serf_init();
-	boat_hack_init();
 	//konec inicializace sdílené paměti a semaforů
 
 	pid=fork();
