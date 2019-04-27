@@ -298,6 +298,8 @@ void write_log(char* type, int id, char* action, int mode)
 	shm_log_index[0]++;
 	if(mode) fprintf(action_log, "%-3d     : %s %-3d     : %-20s     : %-3d     : %-3d\n", shm_log_index[0], type, id, action, shm_hack_count[0], shm_serf_count[0]);
 	else fprintf(action_log, "%-3d     : %s %-3d     : %-20s\n", shm_log_index[0], type, id, action);
+	if(mode) printf("%-3d     : %s %-3d     : %-20s     : %-3d     : %-3d\n", shm_log_index[0], type, id, action, shm_hack_count[0], shm_serf_count[0]);
+	else printf("%-3d     : %s %-3d     : %-20s\n", shm_log_index[0], type, id, action);
 	
 	log_count_close();
 	hack_count_close();
@@ -357,9 +359,13 @@ void one_serf(int id)
 		
 		boat_hack_open();
 		boat_serf_open();
+		serf_count_open();
+		hack_count_open();
 		
-		if((shm_boat_serf[0] < 4 && shm_boat_hack[0] == 0) || (shm_boat_serf[0] < 2 && shm_boat_hack[0] <= 2)) break;
+		if((shm_boat_serf[0] < 4 && shm_boat_hack[0] == 0 && shm_serf_count[0] >= 4) || (shm_boat_serf[0] < 2 && shm_boat_hack[0] <= 2 && shm_serf_count[0] >=2 && shm_hack_count[0] >= 2)) break;
 		
+		serf_count_close();
+		hack_count_close();
 		boat_hack_close();
 		boat_serf_close();
 		
@@ -368,6 +374,8 @@ void one_serf(int id)
 	}
 	
 	//může jít na loď a nastupuje
+	serf_count_close();
+	hack_count_close();
 	shm_boat_serf[0]++;
 	//je-li loď plná, stává se kapitánem a nechává si semafor sem_embarking,
 	//aby nikdo na molu zbytečně nekontroloval zdroje ani se nesnažil nastoupit
@@ -491,9 +499,13 @@ void one_hack(int id)
 		
 		boat_hack_open();
 		boat_serf_open();
+		hack_count_open();
+		serf_count_open();
 		
-		if((shm_boat_hack[0] < 4 && shm_boat_serf[0] == 0) || (shm_boat_hack[0] < 2 && shm_boat_serf[0] <= 2)) break;
+		if((shm_boat_hack[0] < 4 && shm_boat_serf[0] == 0 && shm_hack_count[0] >=4) || (shm_boat_hack[0] < 2 && shm_boat_serf[0] <= 2 && shm_serf_count[0] >=2 && shm_hack_count[0] >= 2)) break;
 		
+		hack_count_close();
+		serf_count_close();
 		boat_hack_close();
 		boat_serf_close();
 		
@@ -502,6 +514,8 @@ void one_hack(int id)
 	}
 	
 	//can go to the boat and goes
+	hack_count_close();
+	serf_count_close();
 	shm_boat_hack[0]++;
 	if(shm_boat_hack[0] == 4 || (shm_boat_hack[0] == 2 && shm_boat_serf[0] == 2)) is_captain = 1; //stává se kapitánem a nechává si semafor sem_embarking
 	else sem_post(sem_embarking); //není kapitánem, posílá semafor aby další mohli nalodit
