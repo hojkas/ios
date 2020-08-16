@@ -1,0 +1,479 @@
+#!/bin/sh
+POSIXLY_CORRECT=true
+export POSIXLY_CORRECT
+
+#Iveta Strnadová, xstrna14, 29.03.2019
+
+LOGS=""
+HELPLOGS=""
+onelog=""
+before=""
+after=""
+seekip=""
+seekuri=""
+prevarg=""
+command=""
+line=""
+test=""
+prevline=""
+
+#nahravani filtru
+while [ "$prevarg" != "$1" ]
+do
+	prevarg=$1
+	case "$1" in
+		-a)
+			if [ -z "$after" ]
+			then #pokud jeste nebyl parametr after
+				shift
+				prevarg=$1 #nastaveni prevarg na datum, ne -a, aby cyklus spravne rozpoznal opakujici se filtr
+				after=$1
+				#samotne zpracovani after
+				#zpracuj after, nastav after
+				mydate=$(echo "$1" | awk '{if(substr($1,5,1)=="-" && substr($1,8,1)=="-" && substr($2,3,1)==":" && substr($2,6,1)==":") print substr($1,1,4)substr($1,6,2)substr($1,9,2)substr($2,1,2)substr($2,4,2)substr($2,7,2); else print "X";}')
+				mydate=$(echo "$mydate" | awk '{if($0 ~ /^[0-9]*$/ && length($1)==14 && substr($1,5,2) < 13 && substr($1,7,2) < 32 && substr($1,9,2)<25 && substr($1,11,2)<60 && substr($1,13,2)<60) print($0); else print "X"}') #osetreni veci jako hodiny < 24 atd., delky nactenych dat a toho, zda-li jsou to cisla
+					
+				if [ "$mydate" = "X" ]
+				then
+					echo "Spatny format zadaneho data."
+					exit 1
+				fi
+				after="$mydate"
+				#konec zpracovani after
+				shift
+			else #pokud je nalezen druhy parametr after, je skript ukoncen
+				echo "Chyba: nalezen dvojity filtr after."
+				exit 1
+			fi
+			;;
+		-b)
+			if [ -z "$before" ]
+			then #pokud jeste nebyl parametr before
+				shift
+				prevarg=$1
+				#zpracovani samotne
+				mydate=$(echo "$1" | awk '{if(substr($1,5,1)=="-" && substr($1,8,1)=="-" && substr($2,3,1)==":" && substr($2,6,1)==":") print substr($1,1,4)substr($1,6,2)substr($1,9,2)substr($2,1,2)substr($2,4,2)substr($2,7,2); else print "X";}')
+				mydate=$(echo "$mydate" | awk '{if($0 ~ /^[0-9]*$/ && length($1)==14 && substr($1,5,2) < 13 && substr($1,5,2) > 0 && substr($1,7,2) < 32 && substr($1,7,2) > 0 && substr($1,9,2)<24 && substr($1,11,2)<60 && substr($1,13,2)<60) print($0); else print "X"}') #osetreni veci jako hodiny < 24 atd., delky nactenych dat a toho, zda-li jsou to cisla
+					
+				if [ "$mydate" = "X" ]
+				then
+					echo "Spatny format zadaneho data."
+					exit 1
+				fi
+				before="$mydate"
+				#konec zpracovani
+				shift
+			else #pokud je nalezen druhy parametr before, je skript ukoncen
+				echo "Chyba: nalezen dvojity filtr before."
+				exit 1
+			fi
+			;;
+		-ip)
+			if [ -z "$seekip" ]
+			then #neni nastaven seekip
+				shift
+				prevarg=$1
+				#zpracovani samotne
+				if expr "$1" : '^[0-2][0-9][0-9]\.[0-2][0-9][0-9]\.[0-2][0-9][0-9]\.[0-2][0-9][0-9]$' >/dev/null; #overeni formatu ipv4
+				then
+					seekip=$1
+				else
+					test=$(echo "$1" | grep '[0-9a-fA-F:]*') #overuje basic format ipv6
+					if [ "$test" = "$1" ]
+					then
+						seekip=$1
+					else
+						echo "Nepodporovany format ip."
+						exit 1
+					fi
+				fi
+				#konec zpracovani
+				shift
+			else #uz byl nastaven seekip
+				echo "Chyba: nalezen dvojity filtr ip."
+				exit 1
+			fi
+			;;
+		-uri)
+			if [ -z "$seekuri" ]
+			then #neni nastaven seekuri
+				shift
+				prevarg=$1
+				#zpracovani samotne
+				seekuri=$1
+				#konec zpracovani
+				shift
+			else #uz byl nastaven seekuri
+				echo "Chyba: nalezen dvojity filtr uri."
+				exit 1
+			fi
+			;;
+	esac
+done
+
+#sem prijde kod s odfiltrovanymi -filtry, nastavi se prikaz, ktery se ma provest
+case "$1" in
+	list-ip)
+		command="list-ip"
+		shift
+		;;
+	list-hosts)
+		command="list-hosts"
+		shift
+		;;
+	list-uri)
+		command="list-uri"
+		shift
+		;;
+	hist-ip)
+		command="hist-ip"
+		shift
+		;;
+	hist-load)
+		command="hist-load"
+		shift
+		;;
+esac
+#zadny prikaz - promenna command zustane prazdna, skript se podle toho dale zaridi
+#byl-li zadan neexistujici prikaz, neni rozpoznan, bude identifikovan jako log a v naslednem overeni skript skonci s chybou kvuli spatnemu formatu (proto to zde neni osetreno)
+
+#sem (pokud nebylo neco špatně zadané) přijdou už jen logy
+#pokud neni zadany log, nacte se ze stdin
+if [ "$#" = "0" ]
+then
+	#nacte ze stdin dokud nenarazi na EOF
+	while read line
+	do
+		if [ -z "$LOGS" ] #potreba aby nebyl v logu znak \n navic
+		then
+			LOGS="$line"
+		else
+			LOGS="$LOGS
+$line"
+		fi
+	done
+else #byli-li zadany log soubory (popr. doslo-li to sem s chybnym argumentem, to se zkontroluje podminkou -e "./$1"
+	while [ "$#" != "0" ]
+	do
+		if [ -e "./$1" ] #pokud zadany soubor existuje
+		then
+			case "$1" in
+				*.gz) #je-li log komprimovan v .gz souboru
+					onelog=`gunzip -c $1 | cat`
+					;;
+				*) #neni-li
+					onelog=`cat $1`
+					;;
+			esac
+			#zpracovani podle toho, zda je log soubor prvni nebo nekolikaty, aby tam nezustal newline navic
+			if [ -z "$LOGS" ]
+			then
+				LOGS="$onelog"
+			else
+				LOGS="$LOGS
+$onelog"
+			fi
+			shift
+		else
+			echo "Logy nebyly spravne nacteny. Soubor(y) bud neexistuji nebo nebyl rozpoznan nektery z predchazejicich prikazu/filtru."
+			exit 1
+		fi
+	done
+fi
+
+#zbyli-li nezpracované agrumenty, neco se nepovedlo (a neco je spatne napsane, toto by mel byt mrtvy kod)
+if [ "$#" != "0" ]
+then
+	echo "Argumenty nebyly spravne nacteny kvuli chybnemu formatu nebo neexistujicimu souboru s logy."
+	exit 1
+fi
+
+#nasleduje zpracovani pozadavku podle filtru a prikazu nad danymi logy
+
+#FILTROVANI
+if [ -n "$after" ]
+then
+	LOGS=$( echo "$LOGS" | awk '{
+		if( length($4) == 21 && substr($4,1,1) == "[" && substr($4,4,1) == "/" && substr($4,8,1) == "/" && substr($4,13,1) == ":" && substr($4,16,1) == ":" && substr($4,19,1) == ":" ) {
+				printf "%s",substr($4,9,4)
+				if (substr($4,5,3) == "Jan") printf "01"
+				if (substr($4,5,3) == "Feb") printf "02"
+				if (substr($4,5,3) == "Mar") printf "03"
+				if (substr($4,5,3) == "Apr") printf "04"
+				if (substr($4,5,3) == "May") printf "05"
+				if (substr($4,5,3) == "Jun") printf "06"
+				if (substr($4,5,3) == "Jul") printf "07"
+				if (substr($4,5,3) == "Aug") printf "08"
+				if (substr($4,5,3) == "Sep") printf "09"
+				if (substr($4,5,3) == "Oct") printf "10"
+				if (substr($4,5,3) == "Nov") printf "11"
+				if (substr($4,5,3) == "Dec") printf "12"
+				printf "%s%s%s%s ", substr($4,2,2),substr($4,14,2),substr($4,17,2),substr($4,20,2)
+				printf "%s\\n", $0
+			}
+	}')
+
+	check=""
+	check=$(echo "$LOGS" | awk '{if($1 !~ /^[0-9]*$/ || substr($1,5,2) >= 13 || substr($1,7,2) >= 32 || substr($1,9,2)>=25 || substr($1,11,2)>=60 || substr($1,13,2)>=60) printf "x"}')
+	if [ -n "$check" ]
+	then
+		echo "Nektere z dat v nekterem z logu neni ve standartnim formatu."
+		exit 1
+	fi
+
+	LOGS=$(echo "$LOGS" | awk -v a=$after '{if($1 > a) printf "%s\\n", $0}')
+	LOGS=$(echo "$LOGS" | awk '{if($0 != "") printf "%s\\n", $0}') #zbaveni se prazdneho radku
+
+	LOGS=$(echo "$LOGS" | cut -d ' ' -f2-)
+fi
+
+if [ -n "$before" ]
+then
+	LOGS=$( echo "$LOGS" | awk '{
+		if( length($4) == 21 && substr($4,1,1) == "[" && substr($4,4,1) == "/" && substr($4,8,1) == "/" && substr($4,13,1) == ":" && substr($4,16,1) == ":" && substr($4,19,1) == ":" ) {
+				printf "%s",substr($4,9,4)
+				if (substr($4,5,3) == "Jan") printf "01"
+				if (substr($4,5,3) == "Feb") printf "02"
+				if (substr($4,5,3) == "Mar") printf "03"
+				if (substr($4,5,3) == "Apr") printf "04"
+				if (substr($4,5,3) == "May") printf "05"
+				if (substr($4,5,3) == "Jun") printf "06"
+				if (substr($4,5,3) == "Jul") printf "07"
+				if (substr($4,5,3) == "Aug") printf "08"
+				if (substr($4,5,3) == "Sep") printf "09"
+				if (substr($4,5,3) == "Oct") printf "10"
+				if (substr($4,5,3) == "Nov") printf "11"
+				if (substr($4,5,3) == "Dec") printf "12"
+				printf "%s%s%s%s ", substr($4,2,2),substr($4,14,2),substr($4,17,2),substr($4,20,2)
+				printf "%s\\n", $0
+			}
+	}')
+
+	check=""
+	check=$(echo "$LOGS" | awk '{if($1 !~ /^[0-9]*$/ || substr($1,5,2) >= 13 || substr($1,7,2) >= 32 || substr($1,9,2)>=25 || substr($1,11,2)>=60 || substr($1,13,2)>=60) printf "x"}')
+	if [ -n "$check" ]
+	then
+		echo "Nektere z dat v nekterem z logu neni ve standartnim formatu."
+		exit 1
+	fi
+
+	LOGS=$(echo "$LOGS" | awk -v b=$before '{if($1 < b) printf "%s\\n", $0}')
+	LOGS=$(echo "$LOGS" | awk '{if($0 != "") printf "%s\\n", $0}') #zbaveni se prazdneho radku
+
+	LOGS=$(echo "$LOGS" | cut -d ' ' -f2-)
+fi
+
+if [ -n "$seekip" ]
+then	
+	LOGS=`echo "$LOGS" | grep "$seekip"`
+fi
+
+if [ -n "$seekuri" ]
+then
+	LOGS=`echo "$LOGS" | grep -E "$seekuri"`
+fi
+
+#PRIKAZ
+case "$command" in
+	list-ip) #nabere z logu ipv4 (helplogs), ipv6 (logs), hodi dokupy, vypise; ignoruje radky, co nezacinaji ip
+		HELPLOGS=$(echo "$LOGS" | grep -w -o '^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]* ')
+		LOGS=$(echo "$LOGS" | grep -w -o '^[0-9a-fA-F:]* ') #tento regex možná nepokryje vše (nebo spíš pokryje i to, co nemá) ale jako prověření ip je to pořád lepší, než jen vzít první slovo řádku
+		if [ -z "$LOGS" ]
+		then
+			LOGS="$HELPLOGS"
+		elif [ -z "$HELPLOGS" ]
+		then
+			LOGS="$LOGS"
+		else
+			LOGS="$LOGS
+$HELPLOGS"
+		fi
+		echo "$LOGS" | awk '!x[$0]++' #neco jako sort | uniq, jen bez sort
+		;;
+	list-hosts)
+		LOGS=$(echo "$LOGS" | awk '{print $1}')
+		#nasledujici cast az po if statement kontroluje, jestli je pripojeni k internetu a host tudiz vraci skutecne vysledky. Neni-li pripojeni, program konci s chybovym hlasenim
+		line=$( echo "$LOGS" | awk 'NR==1{print $1}')
+		test=$(host $line | awk '{if($2 == "connection") print 1; else print 0;}')
+		if [ "$test" = "1" ]
+		then
+			echo "Chyba v pripojeni k siti, prikazy host nelze provest."
+			exit 1
+		fi
+		
+		for line in $LOGS #projizdi logs radek po radku, nad kazdou ip zkusi host, kdyz uspeje, vraci host, kdyz ne, vraci puvodni adresu
+		do
+			hostresult=""
+			hostresult=$(host $line | awk '{if($1 == "Host") print "X"; else print $5;}')
+			hostresult=$(echo $hostresult | awk '{if(NF > 1) print $NF; else print $1;}') #opravi vysledek, byl-li viceradkovy
+			if [ "$hostresult" = "X" ]
+			then
+				#
+				if [ -z "HELPLOGS" ]
+				then
+					HELPLOGS="$line"
+				else
+					HELPLOGS="$HELPLOGS
+$line"
+				fi
+				#
+			else
+			#
+				if [ -z "HELPLOGS" ]
+				then
+					HELPLOGS="$hostresult"
+				else 
+					HELPLOGS="$HELPLOGS
+$hostresult"
+				fi
+				#
+			fi
+		done
+		LOGS="$HELPLOGS"
+		LOGS=$(echo "$LOGS" | awk '{if($0 != "") print $1}') #zbaveni se prazdneho radku
+		echo "$LOGS" | awk '!x[$0]++'
+		;;
+	list-uri)
+		LOGS=$( echo "$LOGS" | awk '{if($6 != "\"-\"") print $7;}')
+		echo "$LOGS" | awk '!x[$0]++'
+		;;
+	hist-ip)
+		HELPLOGS=$(echo "$LOGS" | grep -w -o '^[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]* ')
+		LOGS=$(echo "$LOGS" | grep -w -o '^[0-9a-fA-F:]* ') #tento regex možná nepokryje vše (nebo spíš pokryje i to, co nemá), ale jako prověření ip je to pořád lepší, než jen vzít první slovo řádku
+		if [ -z "$LOGS" ]
+		then
+			LOGS="$HELPLOGS"
+		elif [ -z "$HELPLOGS" ]
+		then
+			LOGS="$LOGS"
+		else
+			LOGS="$LOGS
+$HELPLOGS"
+		fi
+		LOGS=$(echo "$LOGS" | sort) #zde mam logy jen s ip adresami (kazda na svem radku)
+		
+		counter=1
+		for line in $LOGS
+		do
+			if [ -n "$prevline" ]
+			then
+				if [ "$prevline" = "$line" ]
+				then
+					counter=$((counter+1))
+				else
+					if [ -z "$prevline" ]
+					then
+						semiresult="$counter $prevline ($counter): "
+					else
+						semiresult="$semiresult
+$counter $prevline ($counter):"
+					hist=""
+					fi
+					while [ $counter != 0 ]
+					do
+						hist=$( echo "$hist" | awk '{printf "%s#", $1}')
+						counter=$((counter-1))
+					done
+					counter=1
+					semiresult="$semiresult $hist"
+				fi
+			fi
+			prevline="$line"
+		done
+		
+		semiresult="$semiresult
+$counter $prevline ($counter):"
+		hist=""
+		while [ $counter != 0 ]
+		do
+			hist=$( echo "$hist" | awk '{printf "%s#", $1}')
+			counter=$((counter-1))
+		done
+		semiresult="$semiresult $hist" #zpracovani posledni ip, ktera se nezpracovala, protoze se za cyklu prevline nezmenila
+		
+		semiresult=$(echo "$semiresult" | sort -r -n)
+		semiresult=$(echo "$semiresult" | cut -d ' ' -f2-)
+		echo "$semiresult"
+		
+		;;
+	hist-load)
+		LOGS=$( echo "$LOGS" | awk '{
+			if( length($4) == 21 && substr($4,1,1) == "[" && substr($4,4,1) == "/" && substr($4,8,1) == "/" && substr($4,13,1) == ":" && substr($4,16,1) == ":" && substr($4,19,1) == ":" ) {
+				printf "%s",substr($4,9,4)
+				if (substr($4,5,3) == "Jan") printf "01"
+				if (substr($4,5,3) == "Feb") printf "02"
+				if (substr($4,5,3) == "Mar") printf "03"
+				if (substr($4,5,3) == "Apr") printf "04"
+				if (substr($4,5,3) == "May") printf "05"
+				if (substr($4,5,3) == "Jun") printf "06"
+				if (substr($4,5,3) == "Jul") printf "07"
+				if (substr($4,5,3) == "Aug") printf "08"
+				if (substr($4,5,3) == "Sep") printf "09"
+				if (substr($4,5,3) == "Oct") printf "10"
+				if (substr($4,5,3) == "Nov") printf "11"
+				if (substr($4,5,3) == "Dec") printf "12"
+				printf "%s%s ", substr($4,2,2),substr($4,14,2)
+			}
+		}')
+
+		check=""
+		check=$(echo "$LOGS" | awk '{if($1 !~ /^[0-9]*$/ || substr($1,5,2) >= 13 || substr($1,7,2) >= 32 || substr($1,9,2)>=25) printf "x"}')
+		if [ -n "$check" ]
+		then
+			echo "Nektere z dat v nekterem z logu neni ve standartnim formatu."
+			exit 1
+		fi
+		
+		counter=1
+		for line in $LOGS
+		do
+			if [ -n "$prevline" ]
+			then
+				if [ "$prevline" = "$line" ]
+				then
+					counter=$((counter+1))
+				else
+					if [ -z "$prevline" ]
+					then
+						semiresult="$prevline ($counter): "
+					else
+						semiresult="$semiresult
+$prevline ($counter):"
+					hist=""
+					fi
+					while [ $counter != 0 ]
+					do
+						hist=$( echo "$hist" | awk '{printf "%s#", $1}')
+						counter=$((counter-1))
+					done
+					counter=1
+					semiresult="$semiresult $hist"
+				fi
+			fi
+			prevline="$line"
+		done
+		
+		semiresult="$semiresult
+$prevline ($counter):"
+		hist=""
+		while [ $counter != 0 ]
+		do
+			hist=$( echo "$hist" | awk '{printf "%s#", $1}')
+			counter=$((counter-1))
+		done
+		semiresult="$semiresult $hist" #zpracovani posledni ip, ktera se nezpracovala, protoze se za cyklu prevline nezmenila
+		
+		semiresult=$(echo "$semiresult" | awk '{
+		if(length($0) != 0)
+			printf "%s-%s-%s %s:00 %s %s\\n", substr($1,1,4), substr($1,5,2), substr($1,7,2), substr($1,9,2), $2, $3
+		}')
+
+		echo "$semiresult"
+		;;
+	*)
+		echo "$LOGS"
+		;;
+esac
+#konec zpracovavani	
+
+exit 0
